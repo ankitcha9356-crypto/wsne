@@ -77,7 +77,8 @@ async def save_upload(up: UploadFile, dest: Path) -> None:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "roles": list(services.ROLES), "whisper": transcribe.available()}
+    problem = transcribe.problem()
+    return {"ok": True, "roles": list(services.ROLES), "whisper": not problem, "whisper_problem": problem}
 
 
 # ---- recruiter pages --------------------------------------------------------------

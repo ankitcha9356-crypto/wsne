@@ -3,6 +3,7 @@
 #   ./wsne setup            first-time setup (creates .env with random passwords)
 #   ./wsne up [parts...]    start everything, or only: core ats calendar inbox reports
 #   ./wsne down             stop everything (data is kept)
+#   ./wsne update          get the latest hub from GitHub and restart it
 #   ./wsne status | logs [service] | password | test
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -111,6 +112,12 @@ case "$cmd" in
     # shellcheck disable=SC2046
     docker compose $(profiles $PARTS) up -d
     urls ;;
+  update)
+    need_docker; [ -f .env ] || die "Run ./wsne setup first."
+    git pull --ff-only
+    docker compose build hub
+    docker compose up -d hub
+    say "Hub updated" ;;
   down)   need_docker; docker compose --profile '*' down ;;
   status) need_docker; docker compose --profile '*' ps ;;
   logs)   need_docker; docker compose --profile '*' logs --tail=100 -f "$@" ;;
@@ -119,5 +126,5 @@ case "$cmd" in
     grep -E '^ADMIN_(USER|PASSWORD)=' .env ;;
   test)   need_docker; docker compose run --rm --no-deps -e DISABLE_BACKGROUND=1 -e DATABASE_URL=sqlite:////tmp/t.db \
             -v "$(pwd)/hub/tests:/app/tests:ro" hub sh -c "pip install -q pytest && python -m pytest -q tests" ;;
-  *) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

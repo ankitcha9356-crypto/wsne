@@ -7,13 +7,18 @@ _model = None
 _lock = threading.Lock()
 
 
-def available() -> bool:
+def problem() -> str:
+    """'' when speech-to-text can be used, otherwise the reason it cannot."""
     try:
         import faster_whisper  # noqa: F401
 
-        return True
-    except Exception:
-        return False
+        return ""
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"[:300]
+
+
+def available() -> bool:
+    return not problem()
 
 
 def transcribe(path: str) -> dict:
