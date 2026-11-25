@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Add candidates</h1>
+{% if msg %}<p class="msg">{{ msg }}</p>{% endif %}
+<form class="card" method="post" enctype="multipart/form-data">
+  <h2>Upload</h2>
+  <p class="mute">Resumes (PDF, DOCX, TXT) or a Naukri export (XLSX or CSV). You can pick many files at once.</p>
+  <div class="row">
+    <select name="role" required>{% for code, r in roles.items() %}<option value="{{ code }}">{{ r.title }}</option>{% endfor %}</select>
+    <input type="file" name="files" multiple required accept=".pdf,.docx,.txt,.xlsx,.csv">
+    <button>Screen now</button>
+  </div>
+</form>
+<div class="card">
+  <h2>Automatic pick-up</h2>
+  <p>Files dropped into these folders are screened within 30 seconds:</p>
+  <pre>{% for code in roles %}{{ inbox }}/{{ code }}/
+{% endfor %}</pre>
+  <p class="mute">Mailbox pick-up is {{ "on" if imap else "off (set IMAP_HOST, IMAP_USER and IMAP_PASSWORD in .env to turn it on)" }}. Put the role code in the email subject to route it.</p>
+  <p class="mute">Old .doc and .xls files are not supported. Save them as .docx or .xlsx first.</p>
+</div>
+{% endblock %}

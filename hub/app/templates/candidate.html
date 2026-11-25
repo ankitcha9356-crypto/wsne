@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block body %}
+<p><a href="/candidates">← Candidates</a></p>
+<h1>{{ c.name or "Unknown" }} <span class="pill {{ c.recommendation }}">{{ c.recommendation.replace("_"," ") }}</span> <span class="pill {{ c.status }}">{{ c.status }}</span></h1>
+{% if msg %}<p class="msg">{{ msg }}</p>{% endif %}
+
+<div class="grid">
+<div class="card">
+  <h2>Line-up</h2>
+  <div class="scroll"><table>
+    <tr><th>Role</th><th class="num">Overall</th><th class="num">Resume</th><th>Result</th></tr>
+    {% for code, l in (c.lineup or {}).items() %}
+    <tr>
+      <td>{{ roles[code].title if roles.get(code) else code }}{% if code == c.matched_role %} <b>(best fit)</b>{% elif code == c.second_role %} (second){% endif %}</td>
+      <td class="num">{{ "%.0f"|format(l.overall) if l.overall is not none else "" }}</td>
+      <td class="num">{{ "%.0f"|format(l.resume) if l.resume is not none else "" }}</td>
+      <td><span class="pill {{ l.state }}">{{ l.state.replace("_"," ") }}</span>
+        {% if l.reasons %}<div class="mute">{{ l.reasons|join("; ") }}</div>{% endif %}
+        {% if l.waiting_for %}<div class="mute">waiting for: {{ l.waiting_for|join(", ") }}</div>{% endif %}
+        {% if l.unknown %}<div class="mute">not checked (no data): {{ l.unknown|join(", ") }}</div>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  <p class="mute">The hub only recommends. Shortlisting or rejecting is your decision below.</p>
+  <form method="post" action="/candidates/{{ c.id }}/update" class="row">
+    <select name="status">{% for s in statuses %}<option {{ "selected" if c.status==s }}>{{ s }}</option>{% endfor %}</select>
+    <select name="applied_role">{% for code, r in roles.items() %}<option value="{{ code }}" {{ "selected" if c.applied_role==code }}>Applied: {{ r.title }}</option>{% endfor %}</select>
+    <button>Save</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Details</h2>
+  <form method="post" action="/candidates/{{ c.id }}/update">
+  <dl class="kv">
+    <dt>Email</dt><dd>{{ c.email or "none" }}</dd>
+    <dt>Phone</dt><dd>{{ c.phone or "none" }}</dd>
+    <dt>Source</dt><dd>{{ c.source }}{% if c.resume_path %} · <a href="/candidates/{{ c.id }}/resume">resume</a>{% endif %}</dd>
+    <dt>Location</dt><dd><input name="location" value="{{ c.location }}" size="14"></dd>
+    <dt>Education</dt><dd><select name="education">{% for e in ["","10th","12th","diploma","graduate","postgraduate"] %}<option value="{{ e }}" {{ "selected" if c.education==e }}>{{ e or "unknown" }}</option>{% endfor %}</select></dd>
+    <dt>Experience (years)</dt><dd><input name="experience_years" value="{{ c.experience_years if c.experience_years is not none else '' }}" size="5"></dd>
+    <dt>Notice (days)</dt><dd><input name="notice_days" value="{{ c.notice_days if c.notice_days is not none else '' }}" size="5"></dd>
+    <dt>Salary (LPA)</dt><dd><input name="ctc_lpa" value="{{ c.ctc_lpa if c.ctc_lpa is not none else '' }}" size="5"></dd>
+  </dl>
+  <p><textarea name="notes" rows="2" placeholder="Recruiter notes">{{ c.notes }}</textarea></p>
+  <button>Save details and re-score</button>
+  </form>
+</div>
+</div>
+
+<div class="card">
+  <h2>Messages</h2>
+  <p class="mute">Assessment link: <a href="{{ link }}">{{ link }}</a></p>
+  <pre>{{ invite }}</pre>
+  <div class="row">
+    {% if wa_invite %}<a class="btn" href="{{ wa_invite }}" target="_blank" rel="noopener">Send invite on WhatsApp</a>{% endif %}
+    <form class="inline" method="post" action="/candidates/{{ c.id }}/send"><input type="hidden" name="kind" value="invite"><button class="ghost">Email invite</button></form>
+    <form class="inline" method="post" action="/candidates/{{ c.id }}/send"><input type="hidden" name="kind" value="invited"><button class="ghost">Mark as invited</button></form>
+  </div>
+  <pre>{{ interview }}</pre>
+  <div class="row">
+    {% if wa_interview %}<a class="btn" href="{{ wa_interview }}" target="_blank" rel="noopener">Send interview message on WhatsApp</a>{% endif %}
+    <form class="inline" method="post" action="/candidates/{{ c.id }}/send"><input type="hidden" name="kind" value="interview"><button class="ghost">Email interview message</button></form>
+    <form class="inline" method="post" action="/candidates/{{ c.id }}/send"><input type="hidden" name="kind" value="chatwoot"><button class="ghost">Add to Chatwoot</button></form>
+  </div>
+</div>
+
+<div class="grid">
+<div class="card">
+  <h2>Resume match</h2>
+  {% for code, d in resume_detail.items() %}
+  <p><b>{{ code }}</b> · JD similarity {{ (d.jd_similarity*100)|round|int }}%<br>
+  <span class="mute">Found: {{ ((d.must_hit + d.good_hit)|join("; ")).replace("|", " / ") or "nothing" }}</span><br>
+  {% if d.must_missing %}<span class="mute">Missing must-haves: {{ (d.must_missing|join("; ")).replace("|", " / ") }}</span>{% endif %}</p>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>Chat assessment {% if c.chat_score is not none %}· {{ "%.0f"|format(c.chat_score) }}/100{% endif %}</h2>
+  {% if c.typing_wpm is not none %}<p>Typing: <b>{{ "%.0f"|format(c.typing_wpm) }} wpm</b> at {{ "%.0f"|format((c.typing_accuracy or 0)*100) }}% accuracy</p>{% endif %}
+  {% for r in (c.chat_detail or {}).get("replies", []) %}
+  <p class="mute">Customer: {{ r.customer }}</p>
+  <pre>{{ r.reply }}</pre>
+  <p class="mute">Score {{ r.score }} · grammar {{ r.grammar }} ({{ r.grammar_engine }}) · empathy {{ r.empathy }} · resolution {{ r.resolution }} · structure {{ r.structure }}
+  {% if r.grammar_examples %}<br>{{ r.grammar_examples|join(" | ") }}{% endif %}
+  {% if r.resolution_missing %}<br>Did not cover: {{ (r.resolution_missing|join("; ")).replace("|", " / ") }}{% endif %}</p>
+  {% else %}<p class="mute">Not taken yet.</p>{% endfor %}
+</div>
+</div>
+
+<div class="card" id="voice">
+  <h2>Voice assessment {% if c.voice_score is not none %}· {{ "%.0f"|format(c.voice_score) }}/100{% elif c.voice_auto_score is not none %}· machine {{ "%.0f"|format(c.voice_auto_score) }}, waiting for your rating{% endif %}</h2>
+  {% set vd = c.voice_detail or {} %}
+  {% if not vd.get("reading_file") and not vd.get("answer_file") %}<p class="mute">Not recorded yet.</p>{% endif %}
+  {% for which, label in [("reading","Reading passage"),("answer","Open answer")] %}{% if vd.get(which ~ "_file") %}
+    <p><b>{{ label }}</b></p>
+    <audio controls preload="none" src="/candidates/{{ c.id }}/audio/{{ which }}"></audio>
+    {% if vd.get(which) %}<pre>{{ vd[which].text }}</pre>
+    {% elif vd.get(which ~ "_error") %}<p class="mute">Could not transcribe: {{ vd[which ~ "_error"] }}</p>
+    {% else %}<p class="mute">Transcribing… refresh in a minute.</p>{% endif %}
+  {% endif %}{% endfor %}
+  {% if vd.get("metrics") %}{% set m = vd.metrics %}
+  <p class="mute">Machine measures: reading accuracy {{ m.reading_accuracy }} · pace {{ m.pace }} ({{ m.reading.wpm }} / {{ m.answer.wpm }} wpm) · fillers {{ m.fillers }} · pauses {{ m.pauses }} · grammar {{ m.grammar }} · answer length {{ m.answer_length }}</p>
+  {% endif %}
+  {% if vd.get("reading_file") or vd.get("answer_file") %}
+  <form method="post" action="/candidates/{{ c.id }}/rate" class="row">
+    {% set h = c.voice_human or {} %}
+    {% for key, label in [("clarity","Clarity"),("tone","Tone and energy"),("neutrality","Accent neutrality")] %}
+    <label>{{ label }} <select name="{{ key }}">{% for n in [1,2,3,4,5] %}<option {{ "selected" if h.get(key, 3)==n }}>{{ n }}</option>{% endfor %}</select></label>
+    {% endfor %}
+    <button>Save rating</button>
+  </form>
+  <p class="mute">1 = poor, 5 = excellent. The final voice score is half machine, half your rating.{% if c.voice_human %} Rated by {{ c.voice_human.by }}.{% endif %}</p>
+  <form method="post" action="/candidates/{{ c.id }}/retranscribe"><button class="ghost">Transcribe again</button></form>
+  {% endif %}
+</div>
+{% endblock %}

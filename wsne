@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# One command for the whole WSNE hiring stack.
+#   ./wsne setup            first-time setup (creates .env with random passwords)
+#   ./wsne up [parts...]    start everything, or only: core ats calendar inbox reports
+#   ./wsne down             stop everything (data is kept)
+#   ./wsne status | logs [service] | password | test
+set -euo pipefail
+cd "$(dirname "$0")"
+
+PARTS_ALL="ats calendar inbox reports"
+OPENCATS_REPO="https://github.com/opencats/OpenCATS"
+
+say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+rand() { openssl rand -hex "${1:-24}"; }
+
+need_docker() {
+  command -v docker >/dev/null || die "Docker is not installed. Install Docker Desktop first: https://www.docker.com/products/docker-desktop/"
+  docker info >/dev/null 2>&1 || die "Docker is installed but not running. Open Docker Desktop and try again."
+  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is missing. Update Docker Desktop."
+}
+
+lan_ip() {
+  ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null \
+    || hostname -I 2>/dev/null | awk '{print $1}' || true
+}
+
+make_env() {
+  [ -f .env ] && return 0
+  say "Creating .env with random passwords"
+  local ip; ip="$(lan_ip)"
+  local out="" line
+  while IFS= read -r line; do
+    case "$line" in
+      *=__GENERATED__) out+="${line%%=*}=$(rand)"$'\n' ;;
+      PUBLIC_URL=*)    out+="PUBLIC_URL=http://${ip:-localhost}:8000"$'\n' ;;
+      *)               out+="$line"$'\n' ;;
+    esac
+  done < .env.example
+  # Chatwoot wants a long key, Cal.com exactly 32 characters, and the hub login one that is easy to type.
+  out="$(printf '%s' "$out" | sed -E "s/^CHATWOOT_SECRET_KEY_BASE=.*/CHATWOOT_SECRET_KEY_BASE=$(rand 64)/; s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$(rand 8)/; s/^CALCOM_ENCRYPTION_KEY=.*/CALCOM_ENCRYPTION_KEY=$(rand 16)/")"
+  ( umask 077; printf '%s\n' "$out" > .env )
+}
+
+profiles() {  # turn part names into --profile flags; no names = everything
+  local parts="${*:-$PARTS_ALL}" flags="" p
+  for p in $parts; do
+    case "$p" in
+      core) ;;
+      ats|calendar|inbox|reports) flags+=" --profile $p" ;;
+      *) die "Unknown part '$p'. Use: core $PARTS_ALL" ;;
+    esac
+  done
+  echo "$flags"
+}
+
+wants() { case " ${PARTS:-$PARTS_ALL} " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+prepare_parts() {
+  if wants ats; then
+    if [ ! -d vendor/OpenCATS/.git ]; then
+      say "Downloading OpenCATS"
+      mkdir -p vendor
+      git clone --depth 1 "$OPENCATS_REPO" vendor/OpenCATS
+    fi
+    if [ ! -d vendor/OpenCATS/vendor ]; then
+      say "Installing OpenCATS libraries (first time only, builds an image)"
+      docker compose --profile ats run --rm --no-deps opencats-php composer install --no-dev --no-interaction
+    fi
+    # The web server user inside the container must be able to save uploads and config.
+    docker compose --profile ats run --rm --no-deps opencats-php sh -c \
+      'chown -R www-data:www-data attachments upload temp config.php . 2>/dev/null || true'
+  fi
+  if wants inbox; then
+    say "Preparing the Chatwoot database"
+    docker compose --profile inbox up -d postgres redis
+    docker compose --profile inbox run --rm chatwoot-rails bundle exec rails db:chatwoot_prepare
+  fi
+}
+
+envval() { grep -E "^$1=" .env | head -1 | cut -d= -f2- | sed -E 's/[[:space:]]+#.*$//; s/^"(.*)"$/\1/'; }
+
+urls() {
+  say "Where everything is"
+  echo "  Hiring Hub   http://localhost:8000   (login: $(envval ADMIN_USER) / $(envval ADMIN_PASSWORD))"
+  echo "               candidates open: $(envval PUBLIC_URL)/a/<their link>"
+  if wants ats;      then echo "  OpenCATS     http://localhost:8080   (first visit runs its install wizard, see README)"; fi
+  if wants calendar; then echo "  Cal.com      http://localhost:3000   (first visit creates your account)"; fi
+  if wants reports;  then echo "  Metabase     http://localhost:3001   (first visit creates your account)"; fi
+  if wants inbox;    then echo "  Chatwoot     http://localhost:3002   (first visit creates your account)"; fi
+  echo
+  echo "  Drop resumes or Naukri exports into: $(pwd)/inbox/<ROLE-CODE>/"
+}
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  setup)
+    need_docker; make_env
+    PARTS="${*:-$PARTS_ALL}"
+    say "Building the hub and downloading the tools (this can take 10-20 minutes the first time)"
+    # shellcheck disable=SC2046
+    docker compose $(profiles $PARTS) pull --ignore-buildable
+    docker compose build hub
+    prepare_parts
+    # shellcheck disable=SC2046
+    docker compose $(profiles $PARTS) up -d
+    urls ;;
+  up)
+    need_docker; [ -f .env ] || die "Run ./wsne setup first."
+    PARTS="${*:-$PARTS_ALL}"
+    # shellcheck disable=SC2046
+    docker compose $(profiles $PARTS) up -d
+    urls ;;
+  down)   need_docker; docker compose --profile '*' down ;;
+  status) need_docker; docker compose --profile '*' ps ;;
+  logs)   need_docker; docker compose --profile '*' logs --tail=100 -f "$@" ;;
+  password)
+    [ -f .env ] || die "Run ./wsne setup first."
+    grep -E '^ADMIN_(USER|PASSWORD)=' .env ;;
+  test)   need_docker; docker compose run --rm --no-deps -e DISABLE_BACKGROUND=1 -e DATABASE_URL=sqlite:////tmp/t.db \
+            -v "$(pwd)/hub/tests:/app/tests:ro" hub sh -c "pip install -q pytest && python -m pytest -q tests" ;;
+  *) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac

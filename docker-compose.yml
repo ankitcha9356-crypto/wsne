@@ -1,0 +1,183 @@
+# WSNE hiring stack. Start with ./wsne up (everything) or ./wsne up core|ats|calendar|inbox|reports
+name: wsne
+
+x-chatwoot: &chatwoot
+  image: chatwoot/chatwoot:${CHATWOOT_TAG:-latest}
+  profiles: [inbox]
+  restart: unless-stopped
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_started}
+  volumes:
+    - chatwoot_storage:/app/storage
+  environment:
+    NODE_ENV: production
+    RAILS_ENV: production
+    INSTALLATION_ENV: docker
+    SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE}
+    FRONTEND_URL: http://localhost:3002
+    FORCE_SSL: "false"
+    ENABLE_ACCOUNT_SIGNUP: "false"
+    ACTIVE_STORAGE_SERVICE: local
+    RAILS_LOG_TO_STDOUT: "true"
+    POSTGRES_HOST: postgres
+    POSTGRES_USERNAME: postgres
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    POSTGRES_DATABASE: chatwoot
+    REDIS_URL: redis://redis:6379
+    REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+services:
+  # ------------------------------------------------------------------ core
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wsne_hub"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  languagetool:
+    image: erikvl87/languagetool
+    restart: unless-stopped
+    environment:
+      Java_Xms: 256m
+      Java_Xmx: 768m
+
+  hub:
+    build: ./hub
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports:
+      - "8000:8000"          # open on your network so candidates can reach the assessment
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/wsne_hub
+      DATA_DIR: /data
+      INBOX_DIR: /inbox
+      ROLES_DIR: /app/roles
+      LANGUAGETOOL_URL: http://languagetool:8010
+      CHATWOOT_URL: http://chatwoot-rails:3000
+      OPENCATS_URL: http://localhost:8080
+      CALCOM_URL: http://localhost:3000
+      METABASE_URL: http://localhost:3001
+    volumes:
+      - ./data:/data
+      - ./inbox:/inbox
+      - ./hub/roles:/app/roles:ro
+
+  # ------------------------------------------------------------------ reports
+  metabase:
+    image: metabase/metabase:${METABASE_TAG:-latest}
+    platform: ${METABASE_PLATFORM:-linux/amd64}
+    profiles: [reports]
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: postgres
+      MB_DB_PASS: ${POSTGRES_PASSWORD}
+
+  # ------------------------------------------------------------------ inbox (Chatwoot)
+  redis:
+    image: redis:alpine
+    profiles: [inbox]
+    restart: unless-stopped
+    command: ["sh", "-c", "redis-server --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+
+  chatwoot-rails:
+    <<: *chatwoot
+    ports:
+      - "127.0.0.1:3002:3000"
+    entrypoint: docker/entrypoints/rails.sh
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+
+  chatwoot-sidekiq:
+    <<: *chatwoot
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+
+  # ------------------------------------------------------------------ calendar (Cal.com)
+  calcom:
+    image: calcom.docker.scarf.sh/calcom/cal.com:${CALCOM_TAG:-latest}
+    platform: ${CALCOM_PLATFORM:-linux/amd64}
+    profiles: [calendar]
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_WEBAPP_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${CALCOM_NEXTAUTH_SECRET}
+      CALENDSO_ENCRYPTION_KEY: ${CALCOM_ENCRYPTION_KEY}
+      DATABASE_HOST: postgres:5432
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/calcom
+      DATABASE_DIRECT_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/calcom
+      CALCOM_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_LICENSE_CONSENT: agree
+      EMAIL_FROM: ${SMTP_FROM:-notifications@example.com}
+      EMAIL_SERVER_HOST: ${SMTP_HOST:-}
+      EMAIL_SERVER_PORT: ${SMTP_PORT:-587}
+      EMAIL_SERVER_USER: ${SMTP_USER:-}
+      EMAIL_SERVER_PASSWORD: ${SMTP_PASSWORD:-}
+
+  # ------------------------------------------------------------------ ats (OpenCATS)
+  opencatsdb:
+    image: mariadb:11
+    profiles: [ats]
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${OPENCATS_DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: cats
+      MARIADB_USER: opencats
+      MARIADB_PASSWORD: ${OPENCATS_DB_PASSWORD}
+    volumes:
+      - opencats_db:/var/lib/mysql
+
+  opencats-php:
+    build:
+      context: ./vendor/OpenCATS
+      dockerfile: docker/php/Dockerfile
+    profiles: [ats]
+    restart: unless-stopped
+    depends_on: [opencatsdb]
+    working_dir: /var/www/public
+    volumes:
+      - ./vendor/OpenCATS:/var/www/public
+
+  opencats:
+    image: nginx:alpine
+    profiles: [ats]
+    restart: unless-stopped
+    depends_on: [opencats-php]
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./vendor/OpenCATS:/var/www/public:ro
+      - ./scripts/opencats-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  postgres_data:
+  redis_data:
+  chatwoot_storage:
+  opencats_db:

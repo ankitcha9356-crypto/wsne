@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Roles and scorecards</h1>
+<p class="mute">Each role is one file in <code>hub/roles/</code>. Edit a file, then press reload to re-score everyone.</p>
+<form method="post" action="/roles/reload" style="margin-bottom:14px"><button>Reload scorecards and re-score</button></form>
+<div class="grid">
+{% for code, r in roles.items() %}
+<div class="card">
+  <h2>{{ r.title }} <span class="mute">{{ code }}</span></h2>
+  <dl class="kv">
+    <dt>Weights</dt><dd>{% for k, v in r.weights.items() %}{{ k }} {{ (v*100)|round|int }}%{{ ", " if not loop.last }}{% endfor %}</dd>
+    <dt>Minimums</dt><dd>{% for k, v in r.minimums.items() %}{{ k.replace("_"," ") }} {{ v }}{{ ", " if not loop.last }}{% endfor %}</dd>
+    <dt>Knockouts</dt><dd>{% for k, v in r.knockouts.items() %}{% if v or v == 0 %}{{ k.replace("_"," ") }}: {{ v if v is not sequence or v is string else v|join(", ") }}<br>{% endif %}{% endfor %}</dd>
+    <dt>Must have</dt><dd>{{ (r.resume.must_have_keywords|join("; ")).replace("|", " / ") }}</dd>
+    <dt>Good to have</dt><dd>{{ (r.resume.good_to_have_keywords|join("; ")).replace("|", " / ") }}</dd>
+    <dt>Interview link</dt><dd>{{ r.interview_link or "not set" }}</dd>
+  </dl>
+</div>
+{% endfor %}
+</div>
+{% endblock %}

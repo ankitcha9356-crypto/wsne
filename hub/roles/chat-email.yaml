@@ -1,0 +1,40 @@
+code: CHAT-EMAIL
+title: Chat and Email Support
+kind: chat
+interview_link: ""
+job_description: |
+  Customer support executive for a chat and email process. Reply to customer queries
+  over live chat and email, handle multiple chats at the same time, resolve order,
+  refund and account issues, and keep accurate notes in the ticketing system.
+  Requires excellent written English and grammar, fast and accurate typing,
+  attention to detail and a customer-first attitude. Rotational shifts.
+
+knockouts:
+  min_education: 12th
+  max_notice_days: 30
+  max_ctc_lpa: 5
+  locations: []
+
+resume:
+  must_have_keywords:
+    - customer support|customer service|customer care|support executive|support associate|helpdesk
+    - chat|email|non-voice|non voice|written
+    - english
+  good_to_have_keywords:
+    - typing|wpm
+    - ticket|ticketing|zendesk|freshdesk|crm
+    - bpo|call center|contact center
+    - e-commerce|ecommerce|refund|order
+
+weights: {resume: 0.2, chat: 0.8}     # voice is not needed for this role
+minimums: {chat: 65, typing_wpm: 30, overall: 60}
+
+assessment:
+  reading_passage: >-
+    Thank you for contacting customer support. I understand how frustrating it is when a
+    payment goes through twice, and I would be happy to fix that for you today. May I
+    have your account number and the date of the transaction? I will review the charge,
+    raise a refund request right away, and send you a confirmation email within the hour.
+  voice_question: >-
+    Tell us about a time you dealt with an upset customer or a difficult person.
+    What happened, what did you say, and how did it end? Speak for about one minute.

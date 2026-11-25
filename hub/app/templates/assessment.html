@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ company }} assessment{% endblock %}
+{% block header %}<header><b>{{ company }}</b><span>Online assessment{% if role_title %} · {{ role_title }}{% endif %}</span></header>{% endblock %}
+{% block body %}
+<style>
+.step{display:none}.step.on{display:block}
+.typing-target{background:#f1f4f8;padding:12px;border-radius:8px;user-select:none;-webkit-user-select:none}
+.bar{display:flex;gap:6px;margin-bottom:14px}.bar i{flex:1;height:6px;border-radius:3px;background:var(--line)}.bar i.done{background:var(--ok)}.bar i.now{background:var(--brand)}
+.err{color:var(--bad)}
+</style>
+<h1>Hi {{ c.name.split()[0] if c.name else "there" }}</h1>
+<div class="bar" id="bar">{% for n in range(5) %}<i></i>{% endfor %}</div>
+
+<section class="card step" id="s-consent">
+  <h2>Before you start</h2>
+  <p>This takes about 10 minutes: a typing test, two written replies and two short voice recordings. Use a quiet place.</p>
+  <p>Your answers and voice recordings will be stored and reviewed by {{ company }} recruiters, with the help of automated scoring, only to assess your application. You can ask us to delete them at any time.</p>
+  <label class="row"><input type="checkbox" id="agree"> I agree to this.</label>
+  <p><button id="b-consent">Start</button></p>
+</section>
+
+<section class="card step" id="s-typing">
+  <h2>1. Typing test</h2>
+  <p>Type the text below exactly as shown. The timer starts when you press Start.</p>
+  <p class="typing-target">{{ typing_text }}</p>
+  <p><button id="b-tstart">Start typing</button></p>
+  <textarea id="typed" rows="7" disabled autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+  <p><button id="b-typing" disabled>Submit typing test</button></p>
+</section>
+
+<section class="card step" id="s-chat">
+  <h2>2. Written replies</h2>
+  <p>You are the support agent. Write the reply you would send to each customer.</p>
+  {% for s in scenarios %}
+  <p><b>Customer {{ loop.index }}:</b> {{ s.customer }}</p>
+  <textarea class="ans" rows="7" spellcheck="false" placeholder="Your reply"></textarea>
+  {% endfor %}
+  <p><button id="b-chat">Submit replies</button></p>
+</section>
+
+{% for which, title, prompt in [("reading", "3. Read aloud", passage), ("answer", "4. Answer in your own words", question)] %}
+<section class="card step" id="s-{{ which }}">
+  <h2>{{ title }}</h2>
+  <p>{{ "Record yourself reading this aloud, clearly and at a natural pace:" if which == "reading" else "Record your answer to this question:" }}</p>
+  <p class="typing-target" style="user-select:text">{{ prompt }}</p>
+  <div class="row rec" data-which="{{ which }}">
+    <button class="b-rec">Start recording</button>
+    <button class="b-stop ghost" disabled>Stop</button>
+    <span class="mute timer"></span>
+  </div>
+  <audio controls class="preview" style="display:none"></audio>
+  <p class="mute">If recording does not start, use your phone's recorder and upload the file instead:
+    <input type="file" accept="audio/*" capture="user" class="f-audio"></p>
+  <p><button class="b-send" disabled>Submit recording</button></p>
+</section>
+{% endfor %}
+
+<section class="card step" id="s-done">
+  <h2>All done. Thank you!</h2>
+  <p>Your assessment has been submitted. Our recruitment team will contact you about the next step.</p>
+</section>
+<p class="err" id="err"></p>
+
+<script>
+const T = "/a/{{ c.token }}";
+const done = {{ done|tojson }};
+const order = ["consent", "typing", "chat", "reading", "answer"];
+const $ = (s, r = document) => r.querySelector(s);
+const err = (m) => { $("#err").textContent = m || ""; };
+
+function show() {
+  const next = order.find(k => !done[k]) || "done";
+  document.querySelectorAll(".step").forEach(e => e.classList.toggle("on", e.id === "s-" + next));
+  document.querySelectorAll("#bar i").forEach((e, i) => {
+    e.className = done[order[i]] ? "done" : (order[i] === next ? "now" : "");
+  });
+  window.scrollTo(0, 0);
+}
+async function post(path, body) {
+  err("");
+  const r = await fetch(T + path, { method: "POST", body });
+  if (!r.ok) {
+    let m = "Something went wrong. Please try again.";
+    try { m = (await r.json()).detail || m; } catch (e) {}
+    err(m); throw new Error(m);
+  }
+}
+$("#b-consent").onclick = async () => {
+  if (!$("#agree").checked) return err("Please tick the box to continue.");
+  await post("/consent"); done.consent = true; show();
+};
+$("#b-tstart").onclick = async () => {
+  await post("/typing/start");
+  $("#typed").disabled = false; $("#b-typing").disabled = false; $("#b-tstart").disabled = true; $("#typed").focus();
+};
+$("#typed").addEventListener("paste", e => e.preventDefault());
+$("#b-typing").onclick = async () => {
+  const f = new FormData(); f.append("typed", $("#typed").value);
+  await post("/typing", f); done.typing = true; show();
+};
+$("#b-chat").onclick = async () => {
+  const f = new FormData(); let empty = false;
+  document.querySelectorAll(".ans").forEach(a => { if (a.value.trim().length < 20) empty = true; f.append("answers", a.value); });
+  if (empty) return err("Please write a full reply to each customer.");
+  await post("/chat", f); done.chat = true; show();
+};
+document.querySelectorAll(".rec").forEach(box => {
+  const which = box.dataset.which, sec = box.closest("section");
+  const bRec = $(".b-rec", box), bStop = $(".b-stop", box), timer = $(".timer", box);
+  const prev = $(".preview", sec), file = $(".f-audio", sec), bSend = $(".b-send", sec);
+  let rec, chunks = [], blob = null, tick, t0;
+  const ready = (b) => { blob = b; prev.src = URL.createObjectURL(b); prev.style.display = "block"; bSend.disabled = false; };
+  bRec.onclick = async () => {
+    err("");
+    if (!navigator.mediaDevices || !window.MediaRecorder) return err("Recording is not available in this browser. Please upload a recording instead.");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = []; rec = new MediaRecorder(stream);
+      rec.ondataavailable = e => chunks.push(e.data);
+      rec.onstop = () => { stream.getTracks().forEach(t => t.stop()); clearInterval(tick); ready(new Blob(chunks, { type: rec.mimeType })); };
+      rec.start(); t0 = Date.now(); bRec.disabled = true; bStop.disabled = false;
+      tick = setInterval(() => {
+        const s = Math.round((Date.now() - t0) / 1000); timer.textContent = s + "s";
+        if (s >= 120) bStop.click();
+      }, 500);
+    } catch (e) { err("Microphone was blocked. Please allow it, or upload a recording instead."); }
+  };
+  bStop.onclick = () => { if (rec && rec.state !== "inactive") rec.stop(); bStop.disabled = true; bRec.disabled = false; bRec.textContent = "Record again"; };
+  file.onchange = () => { if (file.files[0]) ready(file.files[0]); };
+  bSend.onclick = async () => {
+    if (!blob) return;
+    const ext = blob.name ? "" : ((blob.type || "").includes("mp4") ? ".mp4" : (blob.type || "").includes("ogg") ? ".ogg" : ".webm");
+    const f = new FormData(); f.append("file", blob, blob.name || ("clip" + ext));
+    bSend.disabled = true; bSend.textContent = "Uploading…";
+    try { await post("/voice/" + which, f); done[which] = true; show(); }
+    catch (e) { bSend.disabled = false; bSend.textContent = "Submit recording"; }
+  };
+});
+show();
+</script>
+{% endblock %}

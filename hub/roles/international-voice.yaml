@@ -1,0 +1,41 @@
+# Scorecard for one open role. Edit the numbers freely; the hub reloads on restart.
+code: INTL-VOICE
+title: International Voice Support
+kind: voice
+interview_link: ""          # e.g. your Cal.com booking page for this role
+job_description: |
+  Customer support executive for an international voice process (US/UK customers).
+  Handle inbound calls, resolve customer queries, billing and account issues, and
+  document each call in the CRM. Requires excellent spoken English, a neutral accent,
+  active listening, empathy and willingness to work night shifts and rotational
+  week-offs. Prior BPO or call center experience in an international process preferred.
+
+knockouts:                  # a failed rule = not suitable. Missing data never rejects anyone.
+  min_education: 12th
+  max_notice_days: 30
+  max_ctc_lpa: 6
+  locations: []             # e.g. [Hyderabad, Bengaluru]; empty = any location
+
+resume:
+  must_have_keywords:
+    - customer support|customer service|customer care|support executive|support associate|helpdesk
+    - voice|calls|inbound|outbound|telecalling
+    - english
+  good_to_have_keywords:
+    - international|us process|uk process|us shift|uk shift
+    - bpo|call center|call centre|contact center
+    - night shift|rotational
+    - crm|salesforce|zendesk|freshdesk
+
+weights: {resume: 0.2, voice: 0.6, chat: 0.2}   # how much each part counts in the overall score
+minimums: {voice: 70, chat: 40, overall: 65}
+
+assessment:
+  reading_passage: >-
+    Thank you for calling customer support. I understand how frustrating it is when a
+    payment goes through twice, and I would be happy to fix that for you today. May I
+    have your account number and the date of the transaction? I will review the charge,
+    raise a refund request right away, and send you a confirmation email within the hour.
+  voice_question: >-
+    Tell us about a time you dealt with an upset customer or a difficult person.
+    What happened, what did you say, and how did it end? Speak for about one minute.

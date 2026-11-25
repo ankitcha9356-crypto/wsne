@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Candidates</h1>
+<form class="card row" method="get">
+  <select name="role"><option value="">All roles</option>{% for code, r in roles.items() %}<option value="{{ code }}" {{ "selected" if f.role==code }}>{{ r.title }}</option>{% endfor %}</select>
+  <select name="rec"><option value="">Any recommendation</option>{% for r in ["shortlist","pending","not_suitable"] %}<option value="{{ r }}" {{ "selected" if f.rec==r }}>{{ r.replace("_"," ") }}</option>{% endfor %}</select>
+  <select name="status"><option value="">Any status</option>{% for s in statuses %}<option {{ "selected" if f.status==s }}>{{ s }}</option>{% endfor %}</select>
+  <input name="q" value="{{ f.q }}" placeholder="Name, email or phone">
+  <button>Filter</button>
+</form>
+<div class="card scroll">
+<table>
+  <tr><th>Name</th><th>Lined up for</th><th>Second choice</th><th class="num">Overall</th><th class="num">Resume</th><th class="num">Chat</th><th class="num">Typing</th><th class="num">Voice</th><th>Recommendation</th><th>Status</th></tr>
+  {% for c in rows %}{% set role = c.matched_role or c.applied_role %}
+  <tr>
+    <td><a href="/candidates/{{ c.id }}">{{ c.name or "Unknown" }}</a><div class="mute">{{ c.location }}{% if c.experience_years is not none %} · {{ c.experience_years }}y{% endif %}</div></td>
+    <td>{{ c.matched_role or "none" }}{% if c.matched_role and c.matched_role != c.applied_role %}<div class="mute">applied {{ c.applied_role }}</div>{% endif %}</td>
+    <td>{{ c.second_role }}</td>
+    <td class="num"><b>{{ "%.0f"|format(c.overall_score) if c.overall_score is not none else "" }}</b></td>
+    <td class="num">{{ "%.0f"|format(c.lineup[role].resume) if c.lineup and c.lineup.get(role) and c.lineup[role].resume is not none else "" }}</td>
+    <td class="num">{{ "%.0f"|format(c.chat_score) if c.chat_score is not none else "" }}</td>
+    <td class="num">{{ "%.0f"|format(c.typing_wpm) if c.typing_wpm is not none else "" }}</td>
+    <td class="num">{{ "%.0f"|format(c.voice_score) if c.voice_score is not none else ("rate" if c.voice_auto_score is not none else "") }}</td>
+    <td><span class="pill {{ c.recommendation }}">{{ c.recommendation.replace("_"," ") }}</span></td>
+    <td><span class="pill {{ c.status }}">{{ c.status }}</span></td>
+  </tr>
+  {% else %}<tr><td colspan="10" class="mute">No candidates match.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Dashboard</h1>
+<div class="grid">
+{% for code, role in roles.items() %}{% set b = board[code] %}
+  <div class="card">
+    <h2>{{ role.title }} <span class="mute">{{ code }}</span></h2>
+    <div class="row" style="gap:22px">
+      <div><div class="big">{{ b.total }}</div><div class="mute">lined up</div></div>
+      <div><div class="big" style="color:var(--ok)">{{ b.shortlist }}</div><div class="mute">ready to shortlist</div></div>
+      <div><div class="big" style="color:var(--warn)">{{ b.pending }}</div><div class="mute">assessment pending</div></div>
+      <div><div class="big" style="color:var(--bad)">{{ b.not_suitable }}</div><div class="mute">not suitable</div></div>
+    </div>
+    <p class="row" style="margin:12px 0 0">
+      <a class="btn" href="/candidates?role={{ code }}&rec=shortlist">Review shortlist</a>
+      <a class="btn ghost" href="/candidates?role={{ code }}">All</a>
+    </p>
+    <p class="mute" style="margin:10px 0 0">{% for s in statuses %}{% if b[s] %}{{ s }} {{ b[s] }} · {% endif %}{% endfor %}</p>
+  </div>
+{% endfor %}
+</div>
+
+<div class="card">
+  <h2>Voice clips waiting for your rating ({{ waiting|length }})</h2>
+  {% if waiting %}
+  <div class="scroll"><table>
+    <tr><th>Candidate</th><th>Applied for</th><th class="num">Machine score</th><th></th></tr>
+    {% for c in waiting %}
+    <tr><td>{{ c.name }}</td><td>{{ c.applied_role }}</td>
+        <td class="num">{{ "%.0f"|format(c.voice_auto_score) if c.voice_auto_score is not none else "transcribing…" }}</td>
+        <td><a href="/candidates/{{ c.id }}#voice">Listen and rate</a></td></tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="mute">Nothing waiting. A voice score is final only after a recruiter listens and rates the clip.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Latest intake</h2>
+  {% if not whisper %}<p class="msg">Speech-to-text is not installed in this run, so voice clips will be saved for manual rating only.</p>{% endif %}
+  {% if log %}<pre>{% for l in log[:12] %}{{ l }}
+{% endfor %}</pre>{% else %}<p class="mute">No files picked up yet. Drop resumes or a Naukri export on the <a href="/intake">Add candidates</a> page.</p>{% endif %}
+</div>
+{% endblock %}
